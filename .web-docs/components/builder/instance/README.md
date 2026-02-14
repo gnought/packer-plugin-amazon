@@ -692,6 +692,8 @@ JSON example:
   }
   ```
 
+- `temporary_iam_instance_profile_policy_arn` (string) - Temporary Iam Instance Profile Policy Arn
+
 - `shutdown_behavior` (string) - Automatically terminate instances on
   shutdown in case Packer exits ungracefully. Possible values are stop and
   terminate. Defaults to stop.
@@ -1102,6 +1104,7 @@ To use the session manager as the connection interface for the SSH communicator 
 
 - `session_manager_port`: A local port on the host machine that should be used as the local end of the session tunnel to the remote host. If not specified Packer will find an available port to use.
 - `temporary_iam_instance_profile_policy_document`: Creates a temporary instance profile policy document to grant Systems Manager permissions to the Ec2 instance. This is an alternative to using an existing `iam_instance_profile`.
+- `temporary_iam_instance_profile_policy_arn`: Add a policy ARN to the Ec2 instance. This is an alternative to using an existing `iam_instance_profile`.
 
 HCL2 example:
 
