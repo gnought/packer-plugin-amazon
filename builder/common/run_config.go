@@ -278,6 +278,7 @@ type RunConfig struct {
 	// ```
 	//
 	TemporaryIamInstanceProfilePolicyDocument *PolicyDocument `mapstructure:"temporary_iam_instance_profile_policy_document" required:"false"`
+	TemporaryIamInstanceProfilePolicyArn      string          `mapstructure:"temporary_iam_instance_profile_policy_arn" required:"false"`
 	// Automatically terminate instances on
 	// shutdown in case Packer exits ungracefully. Possible values are stop and
 	// terminate. Defaults to stop.
@@ -797,8 +798,8 @@ func (c *RunConfig) Prepare(ctx *interpolate.Context) []error {
 			errs = append(errs, msg)
 		}
 
-		if c.IamInstanceProfile == "" && c.TemporaryIamInstanceProfilePolicyDocument == nil {
-			msg := fmt.Errorf(`no iam_instance_profile defined; session_manager connectivity requires a valid instance profile with AmazonSSMManagedInstanceCore permissions. Alternatively a temporary_iam_instance_profile_policy_document can be used.`)
+		if c.IamInstanceProfile == "" && c.TemporaryIamInstanceProfilePolicyDocument == nil && c.TemporaryIamInstanceProfilePolicyArn == "" {
+			msg := fmt.Errorf(`no iam_instance_profile defined; session_manager connectivity requires a valid instance profile with AmazonSSMManagedInstanceCore permissions. Alternatively a temporary_iam_instance_profile_policy_document or temporary_iam_instance_profile_policy_arn can be used.`)
 			errs = append(errs, msg)
 		}
 	}
@@ -963,7 +964,7 @@ func (c *RunConfig) IsSpotInstance() bool {
 }
 
 func (c *RunConfig) SSMAgentEnabled() bool {
-	hasIamInstanceProfile := c.IamInstanceProfile != "" || c.TemporaryIamInstanceProfilePolicyDocument != nil
+	hasIamInstanceProfile := c.IamInstanceProfile != "" || c.TemporaryIamInstanceProfilePolicyDocument != nil || c.TemporaryIamInstanceProfilePolicyArn != ""
 	return c.SSHInterface == "session_manager" && hasIamInstanceProfile
 }
 
