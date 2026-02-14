@@ -29,6 +29,7 @@ type StepIamInstanceProfile struct {
 	InstanceType                              string
 	SkipProfileValidation                     bool
 	TemporaryIamInstanceProfilePolicyDocument *PolicyDocument
+	TemporaryIamInstanceProfilePolicyArn      string
 	createdInstanceProfileName                string
 	createdRoleName                           string
 	createdPolicyName                         string
@@ -62,16 +63,9 @@ func (s *StepIamInstanceProfile) Run(ctx context.Context, state multistep.StateB
 		return multistep.ActionContinue
 	}
 
-	if s.TemporaryIamInstanceProfilePolicyDocument != nil {
+	if s.TemporaryIamInstanceProfilePolicyDocument != nil || s.TemporaryIamInstanceProfilePolicyArn != "" {
 		// Create the profile
 		profileName := fmt.Sprintf("packer-%s", uuid.TimeOrderedUUID())
-
-		policy, err := json.Marshal(s.TemporaryIamInstanceProfilePolicyDocument)
-		if err != nil {
-			ui.Error(err.Error())
-			state.Put("error", err)
-			return multistep.ActionHalt
-		}
 
 		ui.Say(fmt.Sprintf("Creating temporary instance profile for this instance: %s", profileName))
 
@@ -152,18 +146,57 @@ func (s *StepIamInstanceProfile) Run(ctx context.Context, state multistep.StateB
 
 		ui.Say(fmt.Sprintf("Attaching policy to the temporary role: %s", profileName))
 
-		_, err = iamsvc.PutRolePolicy(ctx, &iam.PutRolePolicyInput{
-			RoleName:       roleResp.Role.RoleName,
-			PolicyName:     aws.String(profileName),
-			PolicyDocument: aws.String(string(policy)),
-		})
-		if err != nil {
-			ui.Error(err.Error())
-			state.Put("error", err)
-			return multistep.ActionHalt
+		if s.TemporaryIamInstanceProfilePolicyDocument != nil {
+			policy, err := json.Marshal(s.TemporaryIamInstanceProfilePolicyDocument)
+			if err != nil {
+				ui.Error(err.Error())
+				state.Put("error", err)
+				return multistep.ActionHalt
+			}
+
+			_, err = iamsvc.PutRolePolicy(ctx, &iam.PutRolePolicyInput{
+				RoleName:       roleResp.Role.RoleName,
+				PolicyName:     aws.String(profileName),
+				PolicyDocument: aws.String(string(policy)),
+			})
+			if err != nil {
+				ui.Error(err.Error())
+				state.Put("error", err)
+				return multistep.ActionHalt
+			}
+
+			s.createdPolicyName = aws.ToString(roleResp.Role.RoleName)
 		}
 
-		s.createdPolicyName = aws.ToString(roleResp.Role.RoleName)
+		if s.TemporaryIamInstanceProfilePolicyArn != "" {
+			policyArn := aws.String(s.TemporaryIamInstanceProfilePolicyArn)
+			_, err = iamsvc.AttachRolePolicy(ctx, &iam.AttachRolePolicyInput{
+				RoleName:  roleResp.Role.RoleName,
+				PolicyArn: policyArn,
+			})
+			if err != nil {
+				ui.Error(err.Error())
+				state.Put("error", err)
+				return multistep.ActionHalt
+			}
+			var optFns []func(*iam.PolicyExistsWaiterOptions)
+			if pollingOptions.MinDelay != nil {
+				optFns = append(optFns, func(o *iam.PolicyExistsWaiterOptions) {
+					o.MinDelay = *pollingOptions.MinDelay
+				})
+			}
+			err = iam.NewPolicyExistsWaiter(iamsvc).Wait(ctx, &iam.GetPolicyInput{
+				PolicyArn: policyArn,
+			}, *pollingOptions.MaxWaitTime, optFns...)
+			if err == nil {
+				log.Printf("[DEBUG] Found attached policy in %s", s.createdRoleName)
+			} else {
+				err := fmt.Errorf("Timed out waiting for attached policy in %s: %s", s.createdRoleName, err)
+				log.Printf("[DEBUG] %s", err.Error())
+				state.Put("error", err)
+				return multistep.ActionHalt
+			}
+		}
 
 		_, err = iamsvc.AddRoleToInstanceProfile(ctx, &iam.AddRoleToInstanceProfileInput{
 			RoleName:            roleResp.Role.RoleName,
@@ -276,6 +309,13 @@ func (s *StepIamInstanceProfile) Cleanup(state multistep.StateBag) {
 
 	if s.roleIsAttached == true {
 		ui.Say("Detaching temporary role from instance profile...")
+
+		if s.TemporaryIamInstanceProfilePolicyArn != "" {
+			_, _ = iamsvc.DetachRolePolicy(ctx, &iam.DetachRolePolicyInput{
+				PolicyArn: aws.String(s.TemporaryIamInstanceProfilePolicyArn),
+				RoleName:  aws.String(s.createdRoleName),
+			})
+		}
 
 		_, err := iamsvc.RemoveRoleFromInstanceProfile(ctx, &iam.RemoveRoleFromInstanceProfileInput{
 			InstanceProfileName: aws.String(s.createdInstanceProfileName),
