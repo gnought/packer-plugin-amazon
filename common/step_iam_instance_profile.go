@@ -109,10 +109,25 @@ func (s *StepIamInstanceProfile) Run(ctx context.Context, state multistep.StateB
 
 		ui.Say(fmt.Sprintf("Creating temporary role for this instance: %s", profileName))
 
+		endpoint, _ := ec2.NewDefaultEndpointResolverV2().ResolveEndpoint(ctx, ec2.EndpointParameters{
+			Region: aws.String(region),
+		})
+		assumeRolePolicy := fmt.Sprintf(`{
+			"Version": "2012-10-17",
+			"Statement": [
+					{
+							"Effect": "Allow",
+							"Principal": {
+									"Service": "%s"
+							},
+							"Action": "sts:AssumeRole"
+					}
+			]
+		}`, strings.Replace(endpoint.URI.Hostname(), fmt.Sprintf(".%s", region), "", 1))
 		roleResp, err := iamsvc.CreateRole(ctx, &iam.CreateRoleInput{
 			RoleName:                 aws.String(profileName),
 			Description:              aws.String("Temporary role for Packer"),
-			AssumeRolePolicyDocument: aws.String("{\"Version\": \"2012-10-17\",\"Statement\": [{\"Effect\": \"Allow\",\"Principal\": {\"Service\": \"ec2.amazonaws.com\"},\"Action\": \"sts:AssumeRole\"}]}"),
+			AssumeRolePolicyDocument: aws.String(assumeRolePolicy),
 			Tags:                     iamProfileTags,
 		})
 		if err != nil {
