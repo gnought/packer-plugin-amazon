@@ -10,6 +10,7 @@ import (
 	"log"
 
 	"github.com/aws/aws-sdk-go/aws"
+	"github.com/aws/aws-sdk-go/aws/endpoints"
 	"github.com/aws/aws-sdk-go/service/iam"
 	"github.com/hashicorp/packer-plugin-sdk/multistep"
 	packersdk "github.com/hashicorp/packer-plugin-sdk/packer"
@@ -96,10 +97,23 @@ func (s *StepIamInstanceProfile) Run(ctx context.Context, state multistep.StateB
 
 		ui.Say(fmt.Sprintf("Creating temporary role for this instance: %s", profileName))
 
+		partition, _ := endpoints.PartitionForRegion(endpoints.DefaultPartitions(), *region)
+		assumeRolePolicy := fmt.Sprintf(`{
+			"Version": "2012-10-17",
+			"Statement": [
+					{
+							"Effect": "Allow",
+							"Principal": {
+									"Service": "ec2.%s"
+							},
+							"Action": "sts:AssumeRole"
+					}
+			]
+		}`, partition.DNSSuffix())
 		roleResp, err := iamsvc.CreateRole(&iam.CreateRoleInput{
 			RoleName:                 aws.String(profileName),
 			Description:              aws.String("Temporary role for Packer"),
-			AssumeRolePolicyDocument: aws.String("{\"Version\": \"2012-10-17\",\"Statement\": [{\"Effect\": \"Allow\",\"Principal\": {\"Service\": \"ec2.amazonaws.com\"},\"Action\": \"sts:AssumeRole\"}]}"),
+			AssumeRolePolicyDocument: aws.String(assumeRolePolicy),
 			Tags:                     iamProfileTags,
 		})
 		if err != nil {
